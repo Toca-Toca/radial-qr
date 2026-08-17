@@ -17,7 +17,7 @@ def draw_ring(ax, r, bits):
         x, y = r * math.cos(ang), r * math.sin(ang)
         ax.add_patch(Circle((x, y), NODE_R, facecolor=GREEN if bit else RED, edgecolor="none"))
 
-def encode(text, output="radial_pro.png"):
+def encode(text, output="radial_qr.png"):
     data_bits = []
     for b in text.encode("utf-8"):
         data_bits.extend(map(int, format(b, "08b")))
@@ -54,24 +54,19 @@ def encode(text, output="radial_pro.png"):
         if num_bytes == 0 and idx < len(data_bits): num_bytes = 1
         
         chunk_data = data_bits[idx : idx + num_bytes * 8]
-        idx += len(chunk_data)
+        while len(chunk_data) < num_bytes * 8: chunk_data.append(0)
         
-        header = [(num_bytes >> i) & 1 for i in range(7, -1, -1)]
-        parity = sum(chunk_data) % 2
+        ring_bits = list(MARKER)
+        ring_bits.extend([(num_bytes >> i) & 1 for i in range(7, -1, -1)])
+        ring_bits.extend(chunk_data)
+        while len(ring_bits) < bpr: ring_bits.append(0)
         
-        full_chunk = MARKER + header + chunk_data + [parity]
-        while len(full_chunk) < bpr: full_chunk.append(0)
-        
-        draw_ring(ax, r, full_chunk)
+        draw_ring(ax, r, ring_bits)
+        idx += num_bytes * 8
         ring_count += 1
 
-    # Dekorasi Tengah
-    ax.add_patch(Circle((0,0), 0.5, facecolor=YELLOW))
-    lim = BASE_R + ring_count * RING_GAP + 2
-    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
-    plt.savefig(output, dpi=300, bbox_inches="tight"); plt.close()
-    print(f"✅ QR Pro Created: {output} ({ring_count} rings)")
-
-if __name__ == "__main__":
-    text = input("Masukkan teks: ")
-    encode(text)
+    pad = (ring_count * RING_GAP + BASE_R) + 2
+    ax.set_xlim(-pad, pad); ax.set_ylim(-pad, pad)
+    plt.savefig(output, dpi=150, bbox_inches="tight", facecolor=BG)
+    plt.close()
+    print(f"Radial QR saved to {output}")
