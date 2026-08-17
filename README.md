@@ -138,7 +138,7 @@ python main.py decode my_radial_code.png
 **Output example:**
 ```
 ========================================
-       RADIAL PRO DECODER RESULT
+       RADIAL QR DECODER RESULT
 ========================================
 Hello World!
 ========================================
