@@ -11,6 +11,10 @@
   <b>💠 A proprietary circular data encoding system that replaces traditional square QR codes with visually striking concentric ring patterns — fully encodable and decodable via CLI.</b>
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Toca-Toca/Toca-Toca/main/assets/radial_animated.svg" alt="Radial QR Animated Example" width="600" />
+</p>
+
 ---
 
 ## 📖 Overview
