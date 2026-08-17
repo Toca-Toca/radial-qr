@@ -10,7 +10,7 @@ def main():
     # Encode
     parser_encode = subparsers.add_parser("encode", help="Encode text into a Radial QR")
     parser_encode.add_argument("text", help="Text to encode")
-    parser_encode.add_argument("-o", "--output", default="radial_pro.png", help="Output file path")
+    parser_encode.add_argument("-o", "--output", default="radial_qr.png", help="Output file path")
     
     # Decode
     parser_decode = subparsers.add_parser("decode", help="Decode a Radial QR image")
@@ -23,7 +23,7 @@ def main():
     elif args.command == "decode":
         result = decode(args.image)
         print("\n" + "="*40)
-        print("       RADIAL PRO DECODER RESULT       ")
+        print("       RADIAL QR DECODER RESULT       ")
         print("="*40)
         print(result)
         print("="*40)
