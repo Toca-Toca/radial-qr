@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""
+Radial Vault v2 — Encoder (HASIL HARDENING AUDIT 2026-08-29)
+============================================================
+- TWO-FILE DESIGN: kunci (radial_key.png) TERPISAH dari payload
+  terenkripsi (vault.enc). Memiliki satu file saja tidak cukup
+  untuk membuka data (kelemahan kritirs desain lama).
+- Format v2: ring metadata = [4-bit marker][16-bit total bytes][4-bit flags]
+    flags bit0 (1) = payload ditulis 2x (redundansi kerusakan lokal)
+    flags bit1 (2) = CRC-32 tail (deteksi korupsi yang pasti)
+- Format v1 (flags=0) tetap bisa dibaca decoder baru (kompatibilitas).
+"""
+import math
+import io
+import os
+import sys
+import zipfile
+import zlib
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+from cryptography.fernet import Fernet
+
+BG, GREEN, RED, YELLOW = "#000000", "#00FF00", "#FF0000", "#FFFF00"
+BASE_R, RING_GAP, NODE_R = 3.0, 2.0, 0.45
+MARKER = [1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0]
+MAGIC_SIGNATURE = b"==RADIAL_VAULT_PAYLOAD=="  # hanya untuk vault LEGACY
+
+FLAG_DUP = 1
+FLAG_CRC = 2
+
+
+def draw_ring(ax, r, bits):
+    """Render satu cincin titik berwarna (GREEN=1, RED=0), mulai jam 12."""
+    bpr = len(bits)
+    for i, bit in enumerate(bits):
+        ang = 2 * math.pi * i / bpr - math.pi / 2
+        x, y = r * math.cos(ang), r * math.sin(ang)
+        ax.add_patch(Circle((x, y), NODE_R, facecolor=GREEN if bit else RED, edgecolor="none"))
+
+
+def bits_from_bytes(data):
+    """bytes -> list of bits (MSB first)."""
+    return [int(b) for byte in data for b in format(byte, "08b")]
+
+
+def crc32_bytes(data):
+    """CRC-32 (4 byte big-endian)."""
+    return zlib.crc32(data).to_bytes(4, "big")
+
+
+# === KAPASITAS & KETERBACAAN (perbaikan: data besar -> node terlalu kecil) ===
+MIN_NODE_RADIUS_PX = 6.0   # decoder butuh radius >= 3px; jaga margin 2x
+BASE_FIG_INCH = 12.0
+BASE_DPI = 300
+MAX_BYTES_PER_IMAGE = 8 * 1024  # batas praktis render (~11 ribu px kanvas); lebih besar -> pecah data
+
+
+def plan_layout(num_bytes, redundant=True, use_crc=True, dpi=BASE_DPI):
+    """
+    Simulasi packing ring TANPA merender — dipakai untuk:
+      (a) guard kapasitas (data kepanjangan -> tolak dengan pesan jelas)
+      (b) kanvas adaptif: radius node dijamin >= MIN_NODE_RADIUS_PX piksel
+          sehingga selalu terbaca decoder walau datanya besar.
+    Returns dict: total_rings, lim, fig_inch, node_radius_px, canvas_px.
+    Raises ValueError bila melebihi MAX_BYTES_PER_IMAGE.
+    """
+    if num_bytes > MAX_BYTES_PER_IMAGE:
+        raise ValueError(
+            f"Data {num_bytes} byte melebihi kapasitas satu gambar radial "
+            f"(maks {MAX_BYTES_PER_IMAGE // 1024} KB). Pecah data menjadi beberapa bagian."
+        )
+    payload_len = num_bytes + (4 if use_crc else 0)
+    copies = 2 if redundant else 1
+
+    def _pack(bits_len):
+        idx = 0
+        ring_count = 2
+        M = len(MARKER)
+        while idx < bits_len:
+            r = BASE_R + ring_count * RING_GAP
+            bpr = max(M + 8 + 1, int((2 * math.pi * r) / (NODE_R * 2.3)))
+            avail = bpr - M - 8 - 1
+            num = min(avail // 8, (bits_len - idx) // 8)
+            if num == 0:
+                num = 1
+            idx += num * 8
+            ring_count += 1
+        return ring_count
+
+    total_rings = _pack(payload_len * 8) * copies
+    lim = BASE_R + total_rings * RING_GAP + 2
+    fig_inch = max(BASE_FIG_INCH, 2.0 * MIN_NODE_RADIUS_PX * lim / (NODE_R * dpi))
+    node_r_px = NODE_R * (fig_inch * dpi / 2.0) / lim
+    return {
+        "total_rings": total_rings,
+        "lim": lim,
+        "fig_inch": fig_inch,
+        "node_radius_px": node_r_px,
+        "canvas_px": int(fig_inch * dpi),
+    }
+
+
+def encode_data_to_png_bytes(data, transparent=False, dpi=300, redundant=True, use_crc=True):
+    """
+    Render `data` (bytes) menjadi PNG radial ring — format v2.
+    Returns: PNG bytes (siap disimpan / dikirim via HTTP).
+    """
+    data = bytes(data)
+    payload = data + (crc32_bytes(data) if use_crc else b"")
+    total_bytes = len(payload)
+    flags = (FLAG_DUP if redundant else 0) | (FLAG_CRC if use_crc else 0)
+    stream = bits_from_bytes(payload)
+
+    # Kanvas adaptif: jaga radius node >= MIN_NODE_RADIUS_PX piksel agar
+    # selalu terbaca decoder (MIN_RADIUS=3px) walaupun datanya besar.
+    plan = plan_layout(len(data), redundant, use_crc, dpi)
+    fig_inch = plan["fig_inch"]
+
+    fig, ax = plt.subplots(figsize=(fig_inch, fig_inch), facecolor="none" if transparent else BG)
+    ax.set_facecolor("none" if transparent else BG)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    # RING 0: anchor/kompas — harus tepat 1 titik hijau (utara)
+    draw_ring(ax, BASE_R, [1, 0, 0, 0])
+
+    # RING 1: metadata [4-bit m_val][16-bit total bytes][4-bit flags]
+    meta = [(len(MARKER) // 4 >> i) & 1 for i in range(3, -1, -1)]
+    meta += [(total_bytes >> i) & 1 for i in range(15, -1, -1)]
+    meta += [(flags >> i) & 1 for i in range(3, -1, -1)]
+    draw_ring(ax, BASE_R + RING_GAP, meta)
+
+    # RING 2+: data — tiap ring = marker + header 8-bit + chunk + parity.
+    # Saat redundant, TIAP salinan di-chunk terpisah sehingga TIDAK ADA chunk
+    # yang menyeberangi batas salinan 1 / salinan 2 (bug yang tertangkap E2E test).
+    stream_copies = [stream] if not redundant else [stream, stream]  # dua salinan PENUH (bukan dipotong)
+    ring_count, M = 2, len(MARKER)
+    for stream_part in stream_copies:
+        idx = 0
+        while idx < len(stream_part):
+            r = BASE_R + ring_count * RING_GAP
+            bpr = max(M + 8 + 1, int((2 * math.pi * r) / (NODE_R * 2.3)))
+            avail = bpr - M - 8 - 1
+            num_bytes = min(avail // 8, (len(stream_part) - idx) // 8)
+            if num_bytes == 0 and idx < len(stream_part):
+                num_bytes = 1
+            chunk = stream_part[idx: idx + num_bytes * 8]
+            idx += len(chunk)
+            header = [(num_bytes >> i) & 1 for i in range(7, -1, -1)]
+            parity = sum(chunk) % 2
+            full = MARKER + header + chunk + [parity]
+            while len(full) < bpr:
+                full.append(0)
+            draw_ring(ax, r, full)
+            ring_count += 1
+
+    ax.add_patch(Circle((0, 0), 0.5, facecolor=YELLOW))
+    lim = BASE_R + ring_count * RING_GAP + 2
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def encode_vault_split(modular_inputs, key_out="radial_key.png", payload_out="vault.enc", redundant=True):
+    """
+    TWO-FILE VAULT (desain aman — menggantikan satu-file yang berbahaya):
+      - key_out    : PNG cincin radial yang menyandikan KUNCI Fernet
+      - payload_out: file terenkripsi (tanpa kunci = tidak berguna)
+    Keduanya harus dimiliki bersamaan untuk membuka data.
+    Returns: (key_out, payload_out)
+    """
+    key = Fernet.generate_key()
+    cipher = Fernet(key)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for name, content in modular_inputs.items():
+            safe = os.path.basename(name) or "data.txt"
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            zf.writestr(safe, content)
+    payload = cipher.encrypt(buf.getvalue())
+
+    with open(payload_out, "wb") as f:
+        f.write(payload)
+    png = encode_data_to_png_bytes(key, redundant=redundant)
+    with open(key_out, "wb") as f:
+        f.write(png)
+
+    print(f"✅ Kunci  : {key_out}  (JANGAN dibagikan)")
+    print(f"✅ Payload: {payload_out}  (aman dibagikan/disimpan)")
+    print("⚠️  KEDUA file dibutuhkan untuk membuka. Simpan kunci seperti kunci fisik.")
+    return key_out, payload_out
+
+
+def encode_legacy_single(modular_inputs, output="radial_vault.png"):
+    """
+    ⚠️ FORMAT LAMA (TIDAK AMAN) — kunci + payload dalam SATU file PNG.
+    Siapa pun yang punya gambarnya bisa membuka isinya (cukup jalankan decoder).
+    Dipertahankan HANYA untuk membaca data lama & pengujian kompatibilitas.
+    """
+    key = Fernet.generate_key()
+    cipher = Fernet(key)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for name, content in modular_inputs.items():
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            zf.writestr(name, content)
+    payload = cipher.encrypt(buf.getvalue())
+    png = encode_data_to_png_bytes(key, redundant=False, use_crc=False)  # v1
+    with open(output, "wb") as f:
+        f.write(png)
+        f.write(MAGIC_SIGNATURE)
+        f.write(payload)
+    print(f"⚠️  VAULT LEGACY dibuat: {output} (format lama — TIDAK AMAN)")
+    return output
+
+
+if __name__ == "__main__":
+    file_name = input("Nama file virtual (mis. rahasia.txt): ")
+    text = input("Isi teks: ")
+    encode_vault_split({file_name: text})

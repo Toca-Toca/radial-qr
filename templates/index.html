@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radial Vault — Pro Encoder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #080c0f;
+    --panel: #0d1318;
+    --border: #1a2830;
+    --accent: #00ff88;
+    --accent2: #ff3c6e;
+    --accent3: #ffe84d;
+    --text: #c8dde8;
+    --muted: #4a6272;
+    --mono: 'Space Mono', monospace;
+    --display: 'Bebas Neue', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow: hidden; /* Scrollbar mati paksa */
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,136,0.015) 2px,rgba(0,255,136,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 40px; border-bottom: 1px solid var(--border); position: relative;
+  }
+  header::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0.4;
+  }
+  
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo { font-family: var(--display); font-size: 2.2rem; letter-spacing: 4px; color: var(--accent); text-shadow: 0 0 20px rgba(0,255,136,0.4); line-height: 1; }
+  .logo span { color: var(--accent2); }
+  .badge { font-size: 0.65rem; padding: 3px 10px; border: 1px solid var(--accent); color: var(--accent); letter-spacing: 2px; text-transform: uppercase; opacity: 0.7; }
+
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 0; height: calc(100vh - 73px); }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab-btn { flex: 1; padding: 14px; background: none; border: none; color: var(--muted); font-family: var(--mono); font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; border-bottom: 2px solid transparent; position: relative; }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(0,255,136,0.04); }
+  .tab-btn:hover:not(.active) { color: var(--text); background: rgba(255,255,255,0.02); }
+
+  .left-panel { border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .tab-content { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .tab-content.active { display: flex; }
+
+  .input-section { padding: 28px 32px; flex: 1; display: flex; flex-direction: column; gap: 20px; }
+  .field-label { font-size: 0.65rem; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .field-label::before { content: '//'; color: var(--accent); font-size: 0.8rem; }
+  textarea { width: 100%; flex: 1; min-height: 160px; background: rgba(0,255,136,0.03); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 0.85rem; padding: 16px; resize: none; outline: none; line-height: 1.6; transition: border-color 0.2s, box-shadow 0.2s; }
+  textarea:focus { border-color: rgba(0,255,136,0.3); box-shadow: 0 0 0 1px rgba(0,255,136,0.1), inset 0 0 20px rgba(0,255,136,0.03); }
+
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat-box { background: var(--panel); border: 1px solid var(--border); padding: 12px 14px; }
+  .stat-val { font-family: var(--display); font-size: 1.6rem; color: var(--accent); line-height: 1; }
+  .stat-lbl { font-size: 0.6rem; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+
+  .btn-row { display: flex; gap: 12px; }
+  .btn { flex: 1; padding: 14px 20px; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; border: 1px solid; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; position: relative; overflow: hidden; }
+  .btn::before { content: ''; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity 0.2s; }
+  .btn:hover::before { opacity: 0.06; }
+  .btn-primary { background: rgba(0,255,136,0.08); border-color: var(--accent); color: var(--accent); }
+  .btn-primary:hover:not(:disabled) { background: rgba(0,255,136,0.15); box-shadow: 0 0 20px rgba(0,255,136,0.15); }
+  .btn-download { background: rgba(255,232,77,0.06); border-color: var(--accent3); color: var(--accent3); }
+  .btn-download:hover:not(:disabled) { background: rgba(255,232,77,0.12); box-shadow: 0 0 20px rgba(255,232,77,0.15); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .decode-section { padding: 28px 32px; flex: 1; display: flex; flex-direction: column; gap: 20px; }
+  .drop-zone { border: 1px dashed var(--border); padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(0,255,136,0.03); }
+  .drop-zone-icon { font-size: 2rem; margin-bottom: 12px; opacity: 0.5; }
+  .drop-zone p { color: var(--muted); font-size: 0.75rem; letter-spacing: 1px; }
+  .drop-zone strong { color: var(--text); display: block; margin-bottom: 6px; font-size: 0.85rem; }
+  #file-input { display: none; }
+
+  .decode-result { flex: 1; background: rgba(0,255,136,0.03); border: 1px solid var(--border); padding: 16px; font-size: 0.85rem; line-height: 1.7; color: var(--accent); overflow-y: auto; white-space: pre-wrap; word-break: break-all; min-height: 120px; position: relative; }
+  .decode-result.empty { color: var(--muted); font-size: 0.75rem; }
+
+  .right-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 50%, rgba(0,255,136,0.04) 0%, transparent 70%); }
+  .right-panel::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(0,255,136,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.04) 1px, transparent 1px); background-size: 40px 40px; pointer-events: none; }
+
+  .preview-wrap { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; max-width: 440px; }
+  .preview-label { font-size: 0.6rem; letter-spacing: 4px; color: var(--muted); text-transform: uppercase; width: 100%; display: flex; align-items: center; justify-content: space-between; }
+  .preview-label .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); animation: blink 1.2s ease-in-out infinite; }
+  .preview-label .dot.live { background: var(--accent); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  .preview-box { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; position: relative; background: rgba(8, 12, 15, 0.4); }
+  .preview-box::before, .preview-box::after { content: ''; position: absolute; width: 20px; height: 20px; border-color: var(--accent); border-style: solid; opacity: 0.5; z-index: 10; pointer-events: none; }
+  .preview-box::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+  .preview-box::after  { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+  #qrGlowCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+  #qrMainCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; cursor: grab; }
+  #qrMainCanvas:active { cursor: grabbing; }
+
+  .empty-preview { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted); font-size: 0.75rem; letter-spacing: 1px; text-align: center; z-index: 3; pointer-events: none; }
+  .ring-anim { width: 80px; height: 80px; position: relative; }
+  .ring-anim .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--accent); opacity: 0; animation: expand 2.4s ease-out infinite; }
+  .ring-anim .ring:nth-child(2) { animation-delay: 0.8s; }
+  .ring-anim .ring:nth-child(3) { animation-delay: 1.6s; }
+  @keyframes expand { 0% { transform: scale(0.2); opacity: 0.6; } 100% { transform: scale(1); opacity: 0; } }
+
+  .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--panel); border: 1px solid var(--accent); color: var(--accent); padding: 10px 24px; font-size: 0.72rem; letter-spacing: 2px; text-transform: uppercase; transition: transform 0.3s ease; z-index: 10000; white-space: nowrap; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: var(--accent2); color: var(--accent2); }
+
+  .status-bar { padding: 8px 32px; border-top: 1px solid var(--border); font-size: 0.62rem; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+  .status-ok { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <canvas id="logoCanvas" width="38" height="38" style="flex-shrink:0; cursor: pointer;" title="Radial Vault"></canvas>
+    <div class="logo">RADIAL<span>VAULT</span></div>
+  </div>
+  <div class="badge">Steganography Engine</div>
+</header>
+
+<main>
+  <div class="left-panel">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="encode">⬡ Vault Encode</button>
+      <button class="tab-btn" data-tab="decode">⬡ Vault Decode</button>
+    </div>
+
+    <div class="tab-content active" id="tab-encode">
+      <div class="input-section">
+        <div>
+          <div class="field-label">Input Data Rahasia</div>
+          <textarea id="txt-input" placeholder="Masukkan teks..." rows="8"></textarea>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="stat-val" id="stat-chars">0</div>
+            <div class="stat-lbl">Chars Input</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" id="stat-bytes">0</div>
+            <div class="stat-lbl">Raw Bytes</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" id="stat-rings">7</div>
+            <div class="stat-lbl">QR Rings</div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-download" id="btn-download" disabled>
+            ↓ Download Vault PNG
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-content" id="tab-decode">
+      <div class="decode-section">
+        <div>
+          <div class="field-label">Upload Vault PNG</div>
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-zone-icon">◎</div>
+            <strong>Drop gambar Vault di sini</strong>
+            <p>atau klik untuk pilih</p>
+            <input type="file" id="file-input" multiple>
+          </div>
+        </div>
+
+        <div>
+          <div class="field-label">Hasil Dekripsi / Unzip</div>
+          <div class="decode-result empty" id="decode-result">// Awaiting file input...</div>
+        </div>
+
+        <button class="btn btn-primary" id="btn-decode" disabled>
+          ⬡ Decode & Extract
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="preview-wrap">
+      <div class="preview-label">
+        <span>Visual Key Preview (Complex Hash)</span>
+        <div class="dot" id="live-dot"></div>
+      </div>
+      <div class="preview-box" id="canvas-container">
+        <canvas id="qrGlowCanvas" width="500" height="500"></canvas>
+        <canvas id="qrMainCanvas" width="500" height="500"></canvas>
+        
+        <div class="empty-preview" id="empty-preview">
+          <div class="ring-anim">
+            <div class="ring"></div>
+            <div class="ring"></div>
+            <div class="ring"></div>
+          </div>
+          <span>Waiting for data stream...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="status-bar">
+  <span>VAULT STATUS — ZIP DEFLATE + AES-128 READY</span>
+  <span id="status-text" class="status-ok">● READY</span>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let selectedFile = null;
+  const TWO_PI = Math.PI * 2;
+  let previewRings = [];
+  let activeRingIdx = null;
+  let animId = null;
+  let currentScale = 1;
+  const SPRING = 0.15, DAMPING = 0.68, MIN_VEL = 0.0003;
+
+  const txtInput = document.getElementById("txt-input");
+  const emptyPreview = document.getElementById("empty-preview");
+  const liveDot = document.getElementById("live-dot");
+  const statChars = document.getElementById("stat-chars");
+  const statBytes = document.getElementById("stat-bytes");
+  const statRings = document.getElementById("stat-rings");
+  const btnDownload = document.getElementById("btn-download");
+  const btnDecode = document.getElementById("btn-decode");
+  const decodeResult = document.getElementById("decode-result");
+  const dropZone = document.getElementById("drop-zone");
+  const fileInput = document.getElementById("file-input");
+  let selectedFiles = [];
+  const statusText = document.getElementById("status-text");
+  const toast = document.getElementById("toast");
+  
+  const qrMain = document.getElementById("qrMainCanvas");
+  const qrGlow = document.getElementById("qrGlowCanvas");
+  const qCtx = qrMain.getContext("2d");
+  const gCtx = qrGlow.getContext("2d");
+  const CANVAS_SIZE = 500;
+  const CX = CANVAS_SIZE / 2;
+  const CY = CANVAS_SIZE / 2;
+
+  function generateComplexKey(text) {
+    if (!text) return "";
+    const dict = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let key = "";
+    let hashA = 0xdeadbeef;
+    let hashB = 0x41c6ce57;
+    for (let i = 0; i < text.length; i++) {
+      let char = text.charCodeAt(i);
+      hashA = Math.imul(hashA ^ char, 2654435761);
+      hashB = Math.imul(hashB ^ char, 1597334677);
+    }
+    hashA = Math.imul(hashA ^ (hashA >>> 16), 2246822507) ^ Math.imul(hashB ^ (hashB >>> 13), 3266489909);
+    hashB = text.length * 31337 + hashA;
+    for (let i = 0; i < 43; i++) {
+      hashA ^= hashA << 13;
+      hashA ^= hashA >>> 17;
+      hashA ^= hashA << 5;
+      hashB = Math.imul(hashB, 1664525) + 1013904223;
+      let mixed = Math.abs(hashA ^ hashB);
+      key += dict[mixed % 64];
+    }
+    return key + "=";
+  }
+
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  txtInput.addEventListener("input", () => {
+    const txt = txtInput.value;
+    const bytes = new TextEncoder().encode(txt).length;
+    statChars.textContent = txt.length;
+    statBytes.textContent = bytes;
+
+    if (!txt.trim()) {
+      statRings.textContent = "—";
+      btnDownload.disabled = true;
+      liveDot.classList.remove("live");
+      emptyPreview.style.display = "flex";
+      setStatus("READY", true);
+      drawEmptyPreview();
+      return;
+    }
+
+    const DYNAMIC_COMPLEX_KEY = generateComplexKey(txt);
+    statRings.textContent = estimateRings(DYNAMIC_COMPLEX_KEY.length) + 2; 
+    btnDownload.disabled = false;
+    liveDot.classList.add("live");
+    emptyPreview.style.display = "none";
+    setStatus("STREAMING RENDER...", true);
+    updatePreview(DYNAMIC_COMPLEX_KEY);
+  });
+
+  function estimateRings(bytes) {
+    let idx = 0, count = 2;
+    const BASE_R = 40, RING_GAP = 28, NODE_R = 5, M = 16;
+    const dataBits = bytes * 8;
+    while (idx < dataBits) {
+      const r = BASE_R + count * RING_GAP;
+      const bpr = Math.max(M + 9, Math.floor((TWO_PI * r) / (NODE_R * 2.3)));
+      const avail = bpr - M - 9;
+      const numBytes = Math.min(Math.floor(avail / 8), Math.ceil((dataBits - idx) / 8));
+      if (numBytes <= 0) break;
+      idx += numBytes * 8;
+      count++;
+    }
+    return Math.max(0, count - 2);
+  }
+
+  function buildPreviewRings(text) {
+    const dataBytes = new TextEncoder().encode(text);
+    const dataBits = [];
+    dataBytes.forEach(b => { for(let i=7; i>=0; i--) dataBits.push((b>>i)&1); });
+
+    const rings = [];
+    const BASE_R = 45, GAP = 34, NR = 5.5; 
+    const MARKER = [1,1,1,0, 1,0,1,1, 0,0,0,1, 0,1,1,0];
+
+    rings.push({ r: BASE_R, bits: [1,0,0,0], angle:0, vel:0, dragging:false });
+
+    const mVal = MARKER.length / 4;
+    const totalBytes = Math.ceil(dataBits.length / 8);
+    const meta = [];
+    for(let i=3; i>=0; i--) meta.push((mVal>>i)&1);
+    for(let i=15; i>=0; i--) meta.push((totalBytes>>i)&1);
+    while(meta.length < 24) meta.push(0);
+    rings.push({ r: BASE_R + GAP, bits: meta, angle:0, vel:0, dragging:false });
+
+    let idx = 0, rc = 2;
+    while(idx < dataBits.length && rc < 20) {
+      const r = BASE_R + rc * GAP;
+      const bpr = Math.max(MARKER.length+9, Math.floor((TWO_PI*r)/(NR*2.3)));
+      const avail = bpr - MARKER.length - 9;
+      const numBytes = Math.min(Math.floor(avail/8), Math.ceil((dataBits.length-idx)/8));
+      if(numBytes<=0) break;
+      const chunk = dataBits.slice(idx, idx+numBytes*8);
+      idx += chunk.length;
+      
+      const header = [];
+      for(let i=7; i>=0; i--) header.push((numBytes>>i)&1);
+      const parity = chunk.reduce((a,b)=>a+b,0)%2;
+      const full = [...MARKER, ...header, ...chunk, parity];
+      while(full.length < bpr) full.push(0);
+      
+      rings.push({ r, bits:full, angle:0, vel:0, dragging:false });
+      rc++;
+    }
+    return { rings, NR };
+  }
+
+  let nodeRadiusGlobal = 5.5;
+
+  function drawFrame() {
+    qCtx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+    qCtx.fillStyle = '#080c0f'; 
+    qCtx.fillRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+    gCtx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+
+    previewRings.forEach(ring => {
+      const n = ring.bits.length;
+      qCtx.save(); qCtx.strokeStyle = 'rgba(0, 255, 136, 0.08)'; qCtx.lineWidth = 1;
+      qCtx.beginPath(); qCtx.arc(CX, CY, ring.r * currentScale, 0, TWO_PI); qCtx.stroke(); qCtx.restore();
+
+      ring.bits.forEach((bit, i) => {
+        const ang = TWO_PI*i/n - Math.PI/2 + ring.angle;
+        const x = CX + (ring.r * currentScale) * Math.cos(ang);
+        const y = CY + (ring.r * currentScale) * Math.sin(ang);
+        const color = bit ? '#00ff88' : '#ff3c6e';
+        
+        qCtx.save(); qCtx.shadowColor = color; qCtx.shadowBlur = bit ? 12 : 6; qCtx.fillStyle = color;
+        qCtx.beginPath(); qCtx.arc(x, y, nodeRadiusGlobal * currentScale * (ring.dragging ? 1.2 : 1), 0, TWO_PI); qCtx.fill(); qCtx.restore();
+
+        const spread = (bit ? 35 : 20) * currentScale;
+        const alpha = (ring.dragging ? 0.25 : 0.15) * (bit ? 1 : 0.8);
+        const gr = gCtx.createRadialGradient(x, y, 0, x, y, spread);
+        gr.addColorStop(0, bit ? `rgba(0,255,136,${alpha})` : `rgba(255,60,110,${alpha})`);
+        gr.addColorStop(1, 'transparent');
+        gCtx.fillStyle = gr; gCtx.beginPath(); gCtx.arc(x, y, spread, 0, TWO_PI); gCtx.fill();
+      });
+    });
+
+    qCtx.save(); qCtx.shadowColor = '#ffe84d'; qCtx.shadowBlur = 18; qCtx.fillStyle = '#ffe84d';
+    qCtx.beginPath(); qCtx.arc(CX, CY, 8 * currentScale, 0, TWO_PI); qCtx.fill(); qCtx.restore();
+
+    previewRings.forEach(ring => {
+      if(ring.dragging) return;
+      ring.vel = (ring.vel - SPRING*ring.angle) * DAMPING; ring.angle += ring.vel;
+      if(Math.abs(ring.vel) < MIN_VEL && Math.abs(ring.angle) < 0.001) { ring.vel = 0; ring.angle = 0; }
+    });
+    animId = requestAnimationFrame(drawFrame);
+  }
+
+  function updatePreview(text) {
+    if(animId) cancelAnimationFrame(animId);
+    const buildResult = buildPreviewRings(text);
+    previewRings = buildResult.rings;
+    nodeRadiusGlobal = buildResult.NR;
+
+    if (previewRings.length > 0) {
+      const maxR = previewRings[previewRings.length - 1].r;
+      const totalRadiusNeeded = maxR + 35; 
+      const maxAllowed = CANVAS_SIZE / 2;
+      currentScale = totalRadiusNeeded > maxAllowed ? maxAllowed / totalRadiusNeeded : 1;
+    }
+    drawFrame();
+  }
+
+  function drawEmptyPreview() {
+    if(animId) cancelAnimationFrame(animId);
+    qCtx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+    gCtx.clearRect(0,0,CANVAS_SIZE,CANVAS_SIZE);
+  }
+
+  function getCanvasPos(evt) {
+    const rect = qrMain.getBoundingClientRect();
+    const scaleX = qrMain.width / rect.width, scaleY = qrMain.height / rect.height;
+    let clientX = evt.clientX, clientY = evt.clientY;
+    if(evt.touches && evt.touches.length > 0) { clientX = evt.touches[0].clientX; clientY = evt.touches[0].clientY; }
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }
+  function getAngle(pos) { return Math.atan2(pos.y - CY, pos.x - CX); }
+  function getRingAt(pos) {
+    const dist = Math.hypot(pos.x - CX, pos.y - CY);
+    let best = null, bestD = Infinity;
+    const hitTolerance = Math.max(12, 20 * currentScale); 
+    previewRings.forEach((ring, i) => { 
+      const d = Math.abs(dist - ring.r * currentScale); 
+      if(d < hitTolerance && d < bestD) { bestD = d; best = i; } 
+    });
+    return best;
+  }
+
+  qrMain.addEventListener('mousedown', e => { const pos = getCanvasPos(e); const ri = getRingAt(pos); if(ri === null) return; activeRingIdx = ri; const ring = previewRings[ri]; ring.dragging = true; ring.vel = 0; ring._ds = getAngle(pos); ring._a0 = ring.angle; });
+  window.addEventListener('mousemove', e => { if(activeRingIdx === null || !previewRings.length) return; const pos = getCanvasPos(e); const ring = previewRings[activeRingIdx]; let d = getAngle(pos) - ring._ds; while(d > Math.PI) d -= TWO_PI; while(d < -Math.PI) d += TWO_PI; const na = ring._a0 + d; ring.vel = na - ring.angle; ring.angle = na; });
+  window.addEventListener('mouseup', () => { if(activeRingIdx !== null && previewRings[activeRingIdx]) previewRings[activeRingIdx].dragging = false; activeRingIdx = null; });
+  qrMain.addEventListener('touchstart', e => { e.preventDefault(); const pos = getCanvasPos(e); const ri = getRingAt(pos); if(ri === null) return; activeRingIdx = ri; const ring = previewRings[ri]; ring.dragging = true; ring.vel = 0; ring._ds = getAngle(pos); ring._a0 = ring.angle; }, {passive: false});
+  window.addEventListener('touchmove', e => { if(activeRingIdx === null) return; e.preventDefault(); const pos = getCanvasPos(e); const ring = previewRings[activeRingIdx]; let d = getAngle(pos) - ring._ds; while(d > Math.PI) d -= TWO_PI; while(d < -Math.PI) d += TWO_PI; const na = ring._a0 + d; ring.vel = na - ring.angle; ring.angle = na; }, {passive: false});
+  window.addEventListener('touchend', () => { if(activeRingIdx !== null && previewRings[activeRingIdx]) previewRings[activeRingIdx].dragging = false; activeRingIdx = null; });
+
+  // ===== BAGIAN YANG BERUBAH: Fungsi Download pakai Python Bridge =====
+  btnDownload.addEventListener("click", async () => {
+    const text = txtInput.value.trim();
+    if (!text) return;
+    
+    setStatus("PACKING, COMPRESSING & ENCRYPTING...", false);
+    btnDownload.disabled = true;
+
+    try {
+      const res = await fetch("/api/download", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ text }) 
+      });
+      if (!res.ok) throw new Error("Gagal generate di server");
+      
+      const blob = await res.blob();
+      
+      // Ubah Blob dari server jadi Base64
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64data = reader.result;
+        
+        // Cek kalau lagi jalan di PyWebview Desktop, kirim datanya ke Python API
+        if (window.pywebview && window.pywebview.api) {
+          const isSaved = await window.pywebview.api.save_image(base64data, "radial_vault_bundle.zip");
+          if (isSaved) {
+            showToast("Vault v2 tersimpan: radial_key.png + vault.enc (1 ZIP)!");
+          } else {
+            showToast("Save cancelled by user.", true);
+          }
+        } else {
+          // Fallback kalau cuma dibuka di browser biasa pas ngetest
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "radial_vault_bundle.zip";
+          a.click();
+          URL.revokeObjectURL(url);
+          showToast("Vault successfully encrypted and packed!");
+        }
+        setStatus("READY", true);
+        btnDownload.disabled = false;
+      };
+      reader.readAsDataURL(blob);
+      
+    } catch(e) { 
+      showToast("Error: " + e.message, true); 
+      setStatus("ERROR", false); 
+      btnDownload.disabled = false; 
+    }
+  });
+
+  dropZone.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", e => { if (e.target.files.length) loadDecodeFile(e.target.files); });
+  dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+  dropZone.addEventListener("drop", e => { e.preventDefault(); dropZone.classList.remove("drag-over"); if (e.dataTransfer.files.length) loadDecodeFile(e.dataTransfer.files); });
+
+  function loadDecodeFile(files) {
+    selectedFiles = Array.from(files);
+    if (!selectedFiles.length) return;
+    const names = selectedFiles.map(f => f.name).join(" + ");
+    const total = selectedFiles.reduce((a, f) => a + f.size, 0);
+    dropZone.querySelector("strong").textContent = names;
+    dropZone.querySelector("p").textContent = `${selectedFiles.length} file - ${(total/1024).toFixed(1)} KB`;
+    btnDecode.disabled = false;
+  }
+
+  btnDecode.addEventListener("click", async () => {
+    if (!selectedFiles.length) return;
+    decodeResult.textContent = "// Accessing Vault..."; 
+    decodeResult.classList.remove("empty"); 
+    btnDecode.disabled = true; 
+    setStatus("EXTRACTING PAYLOAD...", false);
+    const fd = new FormData(); 
+    selectedFiles.forEach(f => fd.append("file", f));
+    try {
+      const res = await fetch("/api/decode", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.error) { 
+        decodeResult.textContent = "// Error: " + data.error; 
+        decodeResult.style.color = "var(--accent2)"; 
+      } else { 
+        decodeResult.textContent = data.result; 
+        decodeResult.style.color = "var(--accent)"; 
+        showToast("Extraction successful!"); 
+      }
+      setStatus("READY", true);
+    } catch(e) { 
+      decodeResult.textContent = "// Server Error: " + e.message; 
+      decodeResult.style.color = "var(--accent2)"; 
+      setStatus("ERROR", false); 
+    }
+    btnDecode.disabled = false;
+  });
+
+  (function(){
+    const lc = document.getElementById('logoCanvas'); 
+    if (!lc) return; 
+    const lx = lc.getContext('2d'); 
+    const lcx = 19, lcy = 19; 
+    let t = 0;
+    const lb = [ 
+      {r: 5, bits: [1,0,0,0]}, 
+      {r: 10, bits: [0,1,0,0,1,0,0,1]}, 
+      {r: 15, bits: [1,0,1,1,0,0,1,0,1,1,0,0]} 
+    ];
+    function dl(){
+      lx.clearRect(0, 0, 38, 38); 
+      lx.fillStyle = '#080c0f'; 
+      lx.fillRect(0, 0, 38, 38);
+      lb.forEach((ring, ri) => { 
+        const n = ring.bits.length; 
+        const spin = t * (0.4 + ri * 0.3) * (ri % 2 === 0 ? 1 : -1); 
+        ring.bits.forEach((bit, i) => { 
+          const ang = TWO_PI * i / n - Math.PI / 2 + spin; 
+          const x = lcx + ring.r * Math.cos(ang); 
+          const y = lcy + ring.r * Math.sin(ang); 
+          const c = bit ? '#00ff88' : '#ff3c6e'; 
+          lx.save(); 
+          lx.shadowColor = c; 
+          lx.shadowBlur = 4; 
+          lx.fillStyle = c; 
+          lx.beginPath(); 
+          lx.arc(x, y, 1.8, 0, TWO_PI); 
+          lx.fill(); 
+          lx.restore(); 
+        }); 
+      });
+      lx.save(); 
+      lx.shadowColor = '#ffe84d'; 
+      lx.shadowBlur = 6; 
+      lx.fillStyle = '#ffe84d'; 
+      lx.beginPath(); 
+      lx.arc(lcx, lcy, 2.5, 0, TWO_PI); 
+      lx.fill(); 
+      lx.restore(); 
+      t += 0.012; 
+      requestAnimationFrame(dl);
+    } 
+    dl();
+  })();
+
+  function setStatus(msg, ok) { 
+    statusText.textContent = (ok ? "● " : "◌ ") + msg; 
+    statusText.style.color = ok ? "var(--accent)" : "var(--accent3)"; 
+  }
+  
+  let toastTimeout; 
+  function showToast(msg, isError=false) { 
+    toast.textContent = msg; 
+    toast.className = "toast" + (isError ? " error" : "") + " show"; 
+    clearTimeout(toastTimeout); 
+    toastTimeout = setTimeout(() => toast.classList.remove("show"), 3000); 
+  }
+</script>
+</body>
+</html>

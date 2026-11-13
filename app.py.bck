@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+from flask import Flask, render_template, request, jsonify, send_file
+import importlib.util, sys, os, io, tempfile, base64
+import zipfile
+from cryptography.fernet import Fernet
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+import math
+
+app = Flask(__name__)
+
+# ─────────────────────────────────────────────────────────
+# ENCODER & DECODER MODULE INITIALIZATION
+# Load the radial encoding and decoding modules dynamically
+# ─────────────────────────────────────────────────────────
+spec = importlib.util.spec_from_file_location("radialEn", os.path.join(os.path.dirname(__file__), "radialEn.py"))
+enc_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(enc_mod)
+
+spec2 = importlib.util.spec_from_file_location("radialD", os.path.join(os.path.dirname(__file__), "radialD.py"))
+dec_mod = importlib.util.module_from_spec(spec2)
+spec2.loader.exec_module(dec_mod)
+
+MAGIC_SIGNATURE = b"==RADIAL_VAULT_PAYLOAD=="
+
+def encode_to_bytes(text_to_draw, transparent=False):
+    """
+    Encode text data into concentric ring visualization (PNG format).
+    Renders encoded data as colored circular nodes arranged in rings.
+    Each node represents a binary digit: GREEN=1, RED=0.
+    """
+    # Color scheme for visualization
+    BG = "#000000"  # Background color
+    GREEN, RED, YELLOW = "#00FF00", "#FF0000", "#FFFF00"  # Bit representation colors
+    
+    # Geometric parameters from encoder module
+    BASE_R, RING_GAP, NODE_R = enc_mod.BASE_R, enc_mod.RING_GAP, enc_mod.NODE_R
+    MARKER = enc_mod.MARKER  # Synchronization marker pattern
+
+    # Convert text to binary representation (8-bit chunks per character)
+    data_bits = []
+    for b in text_to_draw.encode("utf-8"):
+        data_bits.extend(map(int, format(b, "08b")))
+
+    fig, ax = plt.subplots(figsize=(12, 12), facecolor="none" if transparent else BG)
+    ax.set_facecolor("none" if transparent else BG)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    def draw_ring(r, bits):
+        """Draw a single ring of nodes at radius r, each representing a bit."""
+        bpr = len(bits)
+        for i, bit in enumerate(bits):
+            # Calculate angular position (starting from 12 o'clock = -π/2)
+            ang = 2 * math.pi * i / bpr - math.pi / 2
+            x, y = r * math.cos(ang), r * math.sin(ang)
+            ax.add_patch(Circle((x, y), NODE_R, facecolor=GREEN if bit else RED, edgecolor="none"))
+
+    # RING 0: Anchor/Orientation marker (1000 binary = North alignment)
+    draw_ring(BASE_R, [1, 0, 0, 0])
+
+    # RING 1: Metadata (marker length + total byte count)
+    m_val = len(MARKER) // 4  # Marker length divided by 4
+    total_bytes = len(data_bits) // 8  # Total data bytes
+    meta = []
+    # Encode marker length (4 bits)
+    meta.extend([(m_val >> i) & 1 for i in range(3, -1, -1)])
+    # Encode total byte count (16 bits)
+    meta.extend([(total_bytes >> i) & 1 for i in range(15, -1, -1)])
+    while len(meta) < 24: meta.append(0)  # Pad to 24 bits
+    draw_ring(BASE_R + RING_GAP, meta)
+
+    # RINGS 2+: Data rings with marker, header, payload, and parity check
+    idx, ring_count = 0, 2
+    M = len(MARKER)
+    while idx < len(data_bits):
+        r = BASE_R + ring_count * RING_GAP
+        # Calculate bits per ring based on circumference
+        bpr = max(M + 8 + 1, int((2 * math.pi * r) / (NODE_R * 2.3)))
+        # Available space for payload after marker, header, and parity
+        avail_bits = bpr - M - 8 - 1
+        num_bytes = min(avail_bits // 8, math.ceil((len(data_bits) - idx) / 8))
+        if num_bytes == 0 and idx < len(data_bits): num_bytes = 1
+        # Extract chunk of data bits
+        chunk_data = data_bits[idx: idx + num_bytes * 8]
+        idx += len(chunk_data)
+        # Encode: byte count (8 bits) + payload + parity (1 bit)
+        header = [(num_bytes >> i) & 1 for i in range(7, -1, -1)]
+        parity = sum(chunk_data) % 2  # Even parity check
+        full_chunk = MARKER + header + chunk_data + [parity]
+        # Pad ring to required bit count
+        while len(full_chunk) < bpr: full_chunk.append(0)
+        draw_ring(r, full_chunk)
+        ring_count += 1
+
+    # Central bullseye marker for visual reference
+    ax.add_patch(Circle((0, 0), 0.5, facecolor=YELLOW))
+    # Set canvas limits to encompass all rings
+    lim = BASE_R + ring_count * RING_GAP + 2
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight", transparent=transparent, facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/api/encode", methods=["POST"])
+def api_encode():
+    # Buat preview di UI, kita gak usah ZIP beneran, cukup passing dummy key (44 byte)
+    return jsonify({"status": "preview_handled_by_frontend"})
+
+@app.route("/api/download", methods=["POST"])
+def api_download():
+    """
+    API endpoint to encode and encrypt user text.
+    Process: Generate encryption key → Compress data → Encrypt → Embed in image.
+    Returns: PNG file with embedded encrypted payload.
+    """
+    data = request.get_json()
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+    try:
+        # RADIAL VAULT IMPLEMENTATION
+        # Step 1: Generate Fernet encryption key (URL-safe Base64)
+        key = Fernet.generate_key()
+        cipher = Fernet(key)
+        key_str = key.decode('utf-8')
+
+        # Step 2: Compress input data into ZIP archive (in-memory)
+        memory_zip = io.BytesIO()
+        with zipfile.ZipFile(memory_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+            zf.writestr("dataPack.txt", text.encode('utf-8'))
+        
+        # Step 3: Encrypt compressed ZIP data
+        encrypted_payload = cipher.encrypt(memory_zip.getvalue())
+
+        # Step 4: Generate visual QR ring pattern (encodes decryption key)
+        png_bytes = encode_to_bytes(key_str, transparent=False)
+
+        # Step 5: Append encrypted payload after PNG file (steganography)
+        final_png_bytes = png_bytes + MAGIC_SIGNATURE + encrypted_payload
+
+        buf = io.BytesIO(final_png_bytes)
+        buf.seek(0)
+        return send_file(buf, mimetype="image/png", as_attachment=True, download_name="radial_vault.png")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/decode", methods=["POST"])
+def api_decode():
+    """
+    API endpoint to decrypt and extract data from a Radial Vault image.
+    Process: Extract encryption key from image → Decrypt payload → Decompress ZIP.
+    Returns: Extracted plaintext data or error message.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["file"]
+    
+    # Save uploaded file to temporary location
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        f.save(tmp.name)
+        tmp_path = tmp.name
+
+    try:
+        # Read file and locate magic signature indicating vault format
+        with open(tmp_path, 'rb') as img_f:
+            file_data = img_f.read()
+            
+        sig_idx = file_data.find(MAGIC_SIGNATURE)
+        if sig_idx == -1:
+            # Backward compatibility: treat as standard Radial QR (no encryption)
+            result, err = dec_mod.decode_visual_qr(tmp_path)
+            if err: return jsonify({"error": err}), 400
+            return jsonify({"result": f"Standard Radial QR (no encryption):\n{result}"})
+
+        # Extract encrypted payload from EOF and decrypt key from visual pattern
+        encrypted_payload = file_data[sig_idx + len(MAGIC_SIGNATURE):]
+        key_str, err = dec_mod.decode_visual_qr(tmp_path)
+        if err: return jsonify({"error": f"QR scan failed: {err}"}), 400
+
+        # Decrypt payload using extracted key
+        try:
+            cipher = Fernet(key_str.encode('utf-8'))
+            decrypted_zip_bytes = cipher.decrypt(encrypted_payload)
+        except Exception as e:
+            return jsonify({"error": f"Decryption failed (wrong key or corrupted data): {e}"}), 400
+
+        # Extract and read ZIP archive from decrypted bytes
+        memory_zip = io.BytesIO(decrypted_zip_bytes)
+        with zipfile.ZipFile(memory_zip, 'r') as zf:
+            file_names = zf.namelist()
+            if file_names:
+                content = zf.read(file_names[0]).decode('utf-8')
+                return jsonify({"result": f"--- DECRYPTION SUCCESSFUL ---\nExtracted: {file_names[0]}\n\n{content}"})
+            else:
+                return jsonify({"error": "ZIP archive is empty"}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        os.unlink(tmp_path)
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
